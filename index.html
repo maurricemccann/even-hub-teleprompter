@@ -10,6 +10,14 @@
       <main>
         <h1>Teleprompter</h1>
         <p class="hint">Paste your script, press Send. Swipe down on the glasses to advance, swipe up to go back.</p>
+        <div class="modes">
+          <button id="mode-scroll" type="button" class="mode-btn active">Scroll</button>
+          <button id="mode-flashcard" type="button" class="mode-btn">Flashcard</button>
+        </div>
+        <div class="presets">
+          <button id="preset-truths" type="button">Load Truths</button>
+          <button id="preset-seed" type="button">Load Seed Speech</button>
+        </div>
         <textarea id="script" rows="10" placeholder="Paste your script here..."></textarea>
         <button id="send" type="button">Send to glasses</button>
         <p id="status"></p>

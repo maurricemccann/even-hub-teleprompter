@@ -5,6 +5,22 @@ body {
   padding: 24px 16px;
 }
 
+.modes, .presets {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+.mode-btn, .presets button {
+  flex: 1;
+  padding: 8px;
+  font-size: 13px;
+  border: 1px solid #888;
+  background: #fff;
+}
+.mode-btn.active {
+  background: #222;
+  color: #fff;
+}
 textarea {
   width: 100%;
   box-sizing: border-box;
