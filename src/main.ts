@@ -1,6 +1,6 @@
 import './style.css'
 import seedsData from './seeds.json'
-import { waitForEvenAppBridge, TextContainerProperty, CreateStartUpPageContainer, TextContainerUpgrade } from '@evenrealities/even_hub_sdk'
+import { waitForEvenAppBridge, TextContainerProperty, CreateStartUpPageContainer, TextContainerUpgrade, MenuContainerProperty, MenuItemProperty } from '@evenrealities/even_hub_sdk'
 
 const PAGE_SIZE = 450
 const PLACEHOLDER = 'Paste a script on your phone and press Send.'
@@ -58,9 +58,21 @@ const mainText = new TextContainerProperty({
   isEventCapture: 1,
 })
 
+// Glasses-side tap-and-hold action menu (SDK 0.0.14) — the same three actions
+// the phone UI already exposes as buttons, so nothing on the glasses does
+// anything the phone couldn't already trigger.
+const menu = new MenuContainerProperty({
+  menuItems: [
+    new MenuItemProperty({ itemName: 'Restart', itemID: 1 }),
+    new MenuItemProperty({ itemName: 'Toggle mode', itemID: 2 }),
+    new MenuItemProperty({ itemName: 'New seed', itemID: 3 }),
+  ],
+})
+
 await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
   containerTotalNum: 1,
   textObject: [mainText],
+  menuObject: menu,
 }))
 
 async function showPage(index: number) {
@@ -79,6 +91,12 @@ bridge.onEvenHubEvent((event: any) => {
     const type = event.textEvent.eventType ?? 0
     if (type === 1) showPage(pageIndex - 1) // swipe up — back
     if (type === 2) showPage(pageIndex + 1) // swipe down — advance
+  }
+  if (event.menuItemClickEvent) {
+    const itemID = event.menuItemClickEvent.itemID
+    if (itemID === 1) showPage(0) // Restart
+    if (itemID === 2) { setMode(mode === 'scroll' ? 'flashcard' : 'scroll'); send(textarea.value) } // Toggle mode
+    if (itemID === 3) { setMode('scroll'); send(seeds[Math.floor(Math.random() * seeds.length)].phrase) } // New seed
   }
 })
 
