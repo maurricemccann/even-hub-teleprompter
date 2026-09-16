@@ -1,46 +1,238 @@
-body {
-  font-family: system-ui, sans-serif;
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 24px 16px;
+/* PL PROMPTER — outer tongue. Tokens lifted from pl-headless app/globals.css so
+   the phone screen reads as the house, not as a dev scaffold. Fonts are the
+   sanctioned FALLBACKS from that file's own stacks, never a webfont: this app
+   declares zero permissions and makes no network request, and a Google Fonts
+   pull would be a third-party request that invalidates the privacy answers. */
+:root {
+  --paper:     #f1ece1;
+  --ink:       #15120b;
+  --ink-soft:  #4f4a3b;
+  --ink-faint: #6f6857;
+  --gold:      #c9a84c;
+  --obsidian:  #0e0c08;
+  --line:      #ddd5c4;
+  --lens:      #8ef0b0;
+
+  --display: Georgia, 'Times New Roman', serif;
+  --body:    'Helvetica Neue', system-ui, sans-serif;
+  --luxury:  0.2em;
 }
 
-.modes, .presets {
-  display: flex;
-  gap: 8px;
-  margin: 8px 0;
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
 }
-.mode-btn, .presets button {
-  flex: 1;
-  padding: 8px;
+
+#app {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 28px 16px calc(40px + env(safe-area-inset-bottom));
+}
+
+/* ---------- masthead ---------- */
+
+.masthead { text-align: center; margin-bottom: 24px; }
+
+h1 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 26px;
+  letter-spacing: var(--luxury);
+  margin: 0;
+  text-indent: var(--luxury);
+}
+
+.tagline {
   font-size: 13px;
-  border: 1px solid #888;
-  background: #fff;
+  color: var(--ink-faint);
+  font-style: italic;
+  font-family: var(--display);
+  margin: 6px 0 0;
 }
-.mode-btn.active {
-  background: #222;
-  color: #fff;
-}
-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font-size: 16px;
+
+/* ---------- the lens ---------- */
+
+.lens { margin-bottom: 28px; }
+
+.lens-frame {
+  border: 1px solid var(--line);
   padding: 8px;
+  background: var(--paper);
 }
+
+#preview-screen {
+  aspect-ratio: 2 / 1;          /* the real 576x288 */
+  background: var(--obsidian);
+  color: var(--lens);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  text-shadow: 0 0 6px rgb(142 240 176 / 0.35);   /* micro-LED bloom */
+}
+
+/* The zone buttons move the real container's yPosition/height, so the preview
+   has to move with them or it is lying about what the lens shows. */
+#preview-screen[data-zone='full']   { justify-content: flex-start; }
+#preview-screen[data-zone='top']    { justify-content: flex-start; }
+#preview-screen[data-zone='middle'] { justify-content: center; }
+#preview-screen[data-zone='bottom'] { justify-content: flex-end; }
+
+.meta {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 8px 0 0;
+  min-height: 14px;
+}
+
+.pager { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---------- fields ---------- */
+
+.field { margin-bottom: 26px; }
+
+.label {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: var(--luxury);
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.note, .status, .foot p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  margin: 0 0 14px;
+}
+
+/* ---------- controls ---------- */
+
+.seg { display: flex; gap: 6px; }
 
 button {
+  flex: 1;
+  font-family: var(--body);
+  font-size: 13px;
+  padding: 11px 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+button:hover { border-color: var(--ink-faint); }
+
+.mode-btn.active, .zone-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.ghost { color: var(--ink-faint); font-size: 16px; }
+
+.primary {
   width: 100%;
+  margin-top: 10px;
+  padding: 14px;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.primary:hover { background: var(--obsidian); }
+
+.presets { margin-top: 8px; }
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--gold);
+  height: 24px;
+}
+
+.scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 16px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.check input { width: 18px; height: 18px; accent-color: var(--ink); flex: none; }
+
+textarea {
+  width: 100%;
+  font-family: var(--body);
+  font-size: 16px;          /* 16px min — anything smaller makes iOS zoom on focus */
+  line-height: 1.5;
   padding: 12px;
-  margin-top: 8px;
-  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  resize: vertical;
 }
 
-.hint {
-  color: #666;
-  font-size: 14px;
+textarea:focus, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
-#status {
-  color: #2a7;
-  font-size: 14px;
+.status { color: var(--ink); margin: 10px 0 0; min-height: 16px; }
+
+.foot {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  text-align: center;
+}
+
+.foot p { margin: 0; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15120b;
+    --ink: #f1ece1;
+    --ink-soft: #c6bda6;
+    --ink-faint: #9a917c;
+    --line: #35301f;
+  }
+  .mode-btn.active, .zone-btn.active, .primary { background: var(--gold); border-color: var(--gold); color: var(--obsidian); }
+  .primary:hover { background: #d4b86a; }
 }

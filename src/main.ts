@@ -1,9 +1,15 @@
 import './style.css'
 import seedsData from './seeds.json'
-import { waitForEvenAppBridge, TextContainerProperty, CreateStartUpPageContainer, TextContainerUpgrade, MenuContainerProperty, MenuItemProperty } from '@evenrealities/even_hub_sdk'
+import {
+  waitForEvenAppBridge,
+  TextContainerProperty,
+  CreateStartUpPageContainer,
+  RebuildPageContainer,
+  MenuContainerProperty,
+  MenuItemProperty,
+} from '@evenrealities/even_hub_sdk'
 
-const PAGE_SIZE = 450
-const PLACEHOLDER = 'Paste a script on your phone and press Send.'
+const PLACEHOLDER = 'Paste text on your phone and press Send.'
 
 type Seed = { glyph: string; phrase: string; tag: string }
 const seeds = seedsData as Seed[]
@@ -15,152 +21,262 @@ const THREE_TRUTHS = [
   'Watch this.',
 ].join('\n\n')
 
-type Mode = 'scroll' | 'flashcard' | 'cues'
-const MODE_CYCLE: Mode[] = ['scroll', 'flashcard', 'cues']
+type Mode = 'scroll' | 'cards' | 'cues'
+type Zone = 'full' | 'top' | 'middle' | 'bottom'
+const MODE_CYCLE: Mode[] = ['scroll', 'cards', 'cues']
+
+// The G2 exposes no font-size control (verified in the SDK's own .d.ts:
+// TextContainerProperty has no size field, and the docs state "no font control").
+// Legibility is therefore bought with line length, line count, capitals and
+// placement — the four things the container DOES expose.
+type Settings = { caps: boolean; lineWidth: number; linesPerPage: number; zone: Zone }
+const settings: Settings = { caps: true, lineWidth: 24, linesPerPage: 5, zone: 'full' }
+
+// Measured on the 576px width: ~48 '#', ~50 digits, ~57 '-'. The font is
+// proportional, so these are averages, not a grid — they land close enough that
+// a wrap at 24 reliably reads as roughly half-width.
+const ZONES: Record<Zone, { y: number; h: number }> = {
+  full: { y: 0, h: 288 },
+  top: { y: 0, h: 104 },
+  middle: { y: 92, h: 104 },
+  bottom: { y: 184, h: 104 },
+}
+
 let mode: Mode = 'scroll'
+let pages = [PLACEHOLDER]
+let pageIndex = 0
+let started = false
+let lastText = ''
 
-function paginateScroll(text: string): string[] {
+function wrap(line: string, width: number): string[] {
+  const words = line.split(/\s+/).filter(Boolean)
+  if (!words.length) return ['']
+  const out: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (!cur) cur = w
+    else if (cur.length + 1 + w.length <= width) cur += ' ' + w
+    else { out.push(cur); cur = w }
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+function toLines(text: string): string[] {
+  return text.split('\n').flatMap((l) => wrap(l.trim(), settings.lineWidth))
+}
+
+function chunk(lines: string[], per: number): string[] {
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i += per) out.push(lines.slice(i, i + per).join('\n'))
+  return out.length ? out : [PLACEHOLDER]
+}
+
+function paginate(raw: string): string[] {
+  const text = settings.caps ? raw.toUpperCase() : raw
   const trimmed = text.trim()
   if (!trimmed) return [PLACEHOLDER]
-  const pages: string[] = []
-  for (let i = 0; i < trimmed.length; i += PAGE_SIZE) pages.push(trimmed.slice(i, i + PAGE_SIZE))
-  return pages
-}
 
-// One idea per card — split on blank lines, never mid-sentence like the fixed
-// char-count scroll pagination would.
-function paginateFlashcard(text: string): string[] {
-  const trimmed = text.trim()
-  if (!trimmed) return [PLACEHOLDER]
-  const cards = trimmed.split(/\n\s*\n/).map(c => c.trim()).filter(Boolean)
-  return cards.length ? cards : [trimmed]
-}
+  if (mode === 'cues') {
+    // One line in = one cue on the lens, with its position. Absorbed from
+    // pl-cue-sheet; holds at both ends rather than wrapping, so a performer is
+    // never thrown back to cue 1 mid-set.
+    const cues = trimmed.split('\n').map((l) => l.trim()).filter(Boolean)
+    if (!cues.length) return [PLACEHOLDER]
+    return cues.map((c, i) => `${wrap(c, settings.lineWidth).join('\n')}\n\n${i + 1} / ${cues.length}`)
+  }
 
-// One line per screen, for live performance — the absorbed pl-cue-sheet. The
-// trailing counter rides inside the content rather than in its own container:
-// showPage upgrades container 1 only, and a second container would have to be
-// rebuilt on every advance.
-function paginateCues(text: string): string[] {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (!lines.length) return [PLACEHOLDER]
-  return lines.map((line, i) => `${line}\n\n${i + 1} / ${lines.length}`)
-}
+  if (mode === 'cards') {
+    // One idea per card — split on blank lines, never mid-sentence.
+    const cards = trimmed.split(/\n\s*\n/).map((c) => c.trim()).filter(Boolean)
+    return cards.length ? cards.map((c) => wrap(c, settings.lineWidth).slice(0, settings.linesPerPage).join('\n')) : [trimmed]
+  }
 
-function paginate(text: string): string[] {
-  if (mode === 'cues') return paginateCues(text)
-  return mode === 'flashcard' ? paginateFlashcard(text) : paginateScroll(text)
+  return chunk(toLines(trimmed), settings.linesPerPage)
 }
 
 const bridge = await waitForEvenAppBridge()
 
-let pages = paginate('')
-let pageIndex = 0
-
-const mainText = new TextContainerProperty({
-  xPosition: 0,
-  yPosition: 0,
-  width: 576,
-  height: 288,
-  borderWidth: 0,
-  borderColor: 15,
-  paddingLength: 4,
-  containerID: 1,
-  containerName: 'main',
-  content: pages[0],
-  isEventCapture: 1,
-})
-
-// Glasses-side tap-and-hold action menu (SDK 0.0.14) — the same three actions
-// the phone UI already exposes as buttons, so nothing on the glasses does
-// anything the phone couldn't already trigger.
 const menu = new MenuContainerProperty({
   menuItems: [
     new MenuItemProperty({ itemName: 'Restart', itemID: 1 }),
     new MenuItemProperty({ itemName: 'Next mode', itemID: 2 }),
-    new MenuItemProperty({ itemName: 'New seed', itemID: 3 }),
+    new MenuItemProperty({ itemName: 'Bigger', itemID: 3 }),
+    new MenuItemProperty({ itemName: 'Smaller', itemID: 4 }),
+    new MenuItemProperty({ itemName: 'New seed', itemID: 5 }),
   ],
 })
 
-await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
-  containerTotalNum: 1,
-  textObject: [mainText],
-  menuObject: menu,
-}))
+function container(content: string) {
+  const { y, h } = ZONES[settings.zone]
+  return new TextContainerProperty({
+    xPosition: 0, yPosition: y, width: 576, height: h,
+    borderWidth: 0, borderColor: 15, paddingLength: 6,
+    containerID: 1, containerName: 'main',
+    content,
+    isEventCapture: 1,
+  })
+}
+
+// Geometry (the zone) is fixed at create/rebuild time, so a zone change has to
+// rebuild rather than upgrade. Content-only changes take the cheaper path.
+async function paint(content: string) {
+  // menuObject rides along on every rebuild — omitting it clears the menu, per
+  // the SDK docs, and every page advance rebuilds.
+  const payload = { containerTotalNum: 1, textObject: [container(content)], menuObject: menu }
+  if (started) return void (await bridge.rebuildPageContainer(new RebuildPageContainer(payload)))
+  await bridge.createStartUpPageContainer(new CreateStartUpPageContainer(payload))
+  started = true
+}
 
 async function showPage(index: number) {
   pageIndex = Math.max(0, Math.min(index, pages.length - 1))
-  await bridge.textContainerUpgrade(new TextContainerUpgrade({
-    containerID: 1,
-    containerName: 'main',
-    content: pages[pageIndex],
-    contentOffset: 0,
-    contentLength: 0,
-  }))
+  await paint(pages[pageIndex])
+  renderPreview()
 }
 
-bridge.onEvenHubEvent((event: any) => {
+bridge.onEvenHubEvent(async (event: any) => {
+  if (event.menuItemClickEvent) {
+    const id = event.menuItemClickEvent.itemID
+    if (id === 1) return showPage(0)
+    if (id === 2) { setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]); return send(lastText) }
+    if (id === 3) return step(-1)
+    if (id === 4) return step(1)
+    if (id === 5) { setMode('scroll'); return send(seeds[Math.floor(Math.random() * seeds.length)].phrase) }
+    return
+  }
   if (event.textEvent) {
     const type = event.textEvent.eventType ?? 0
-    if (type === 1) showPage(pageIndex - 1) // swipe up — back
-    if (type === 2) showPage(pageIndex + 1) // swipe down — advance
+    if (type === 1) await showPage(pageIndex - 1)
+    if (type === 2) await showPage(pageIndex + 1)
+    return
   }
-  if (event.menuItemClickEvent) {
-    const itemID = event.menuItemClickEvent.itemID
-    if (itemID === 1) showPage(0) // Restart
-    if (itemID === 2) { setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]); send(textarea.value) } // Next mode
-    if (itemID === 3) { setMode('scroll'); send(seeds[Math.floor(Math.random() * seeds.length)].phrase) } // New seed
+  if (event.sysEvent) {
+    if ((event.sysEvent.eventType ?? 0) === 3) await bridge.shutDownPageContainer(1)
   }
 })
 
-const textarea = document.querySelector<HTMLTextAreaElement>('#script')!
-const sendBtn = document.querySelector<HTMLButtonElement>('#send')!
-const status = document.querySelector<HTMLParagraphElement>('#status')!
-const scrollBtn = document.querySelector<HTMLButtonElement>('#mode-scroll')!
-const flashcardBtn = document.querySelector<HTMLButtonElement>('#mode-flashcard')!
-const cuesBtn = document.querySelector<HTMLButtonElement>('#mode-cues')!
-const truthsBtn = document.querySelector<HTMLButtonElement>('#preset-truths')!
-const seedBtn = document.querySelector<HTMLButtonElement>('#preset-seed')!
+// "Bigger" = fewer, shorter lines. The glyphs cannot grow, so legibility is
+// bought by giving each line more of the lens and less to compete with.
+const WIDTHS = [18, 24, 32, 40, 48]
+const LINES = [3, 4, 5, 7, 9]
+function step(dir: number) {
+  const i = Math.max(0, Math.min(WIDTHS.indexOf(settings.lineWidth) + dir, WIDTHS.length - 1))
+  settings.lineWidth = WIDTHS[i]
+  settings.linesPerPage = LINES[i]
+  syncControls()
+  persist()
+  return send(lastText)
+}
+
+/* ---------- phone UI ---------- */
+
+const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!
+const textarea = $<HTMLTextAreaElement>('#script')
+const status = $<HTMLParagraphElement>('#status')
+const preview = $<HTMLDivElement>('#preview-screen')
+const previewMeta = $<HTMLParagraphElement>('#preview-meta')
+const capsToggle = $<HTMLInputElement>('#caps')
+const widthInput = $<HTMLInputElement>('#width')
+const linesInput = $<HTMLInputElement>('#lines')
+
+function renderPreview() {
+  preview.textContent = pages[pageIndex] ?? ''
+  preview.dataset.zone = settings.zone
+  const unit = mode === 'cues' ? 'cue' : mode === 'cards' ? 'card' : 'page'
+  previewMeta.textContent = pages[0] === PLACEHOLDER
+    ? 'Nothing sent yet.'
+    : `${unit} ${pageIndex + 1} of ${pages.length} · ${settings.lineWidth} chars · ${settings.linesPerPage} lines`
+}
 
 async function send(text: string) {
+  lastText = text
   textarea.value = text
   pages = paginate(text)
   await showPage(0)
-  const unit = mode === 'cues' ? 'cue(s)' : mode === 'flashcard' ? 'card(s)' : 'page(s)'
-  status.textContent = `Sent — ${pages.length} ${unit} on the glasses.`
+  status.textContent = pages[0] === PLACEHOLDER ? '' : 'Sent to glasses.'
 }
 
 function setMode(m: Mode) {
   mode = m
-  scrollBtn.classList.toggle('active', m === 'scroll')
-  flashcardBtn.classList.toggle('active', m === 'flashcard')
-  cuesBtn.classList.toggle('active', m === 'cues')
+  document.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.mode === m)
+    b.setAttribute('aria-pressed', String(b.dataset.mode === m))
+  })
+  persist()
 }
 
-scrollBtn.addEventListener('click', () => setMode('scroll'))
-flashcardBtn.addEventListener('click', () => setMode('flashcard'))
-cuesBtn.addEventListener('click', () => setMode('cues'))
-sendBtn.addEventListener('click', () => send(textarea.value))
-truthsBtn.addEventListener('click', () => { setMode('flashcard'); send(THREE_TRUTHS) })
-seedBtn.addEventListener('click', () => {
-  setMode('scroll')
-  const seed = seeds[Math.floor(Math.random() * seeds.length)]
-  send(seed.phrase)
-})
+function setZone(z: Zone) {
+  settings.zone = z
+  document.querySelectorAll<HTMLButtonElement>('.zone-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.zone === z)
+    b.setAttribute('aria-pressed', String(b.dataset.zone === z))
+  })
+  persist()
+}
 
-// ponytail: test-only entry point — the simulator's automation API can drive
-// glasses-side gestures but not phone-DOM clicks, so ?autotest=<text> exercises
-// the same send() path a real tap would, for scripted acceptance testing only.
+function syncControls() {
+  capsToggle.checked = settings.caps
+  widthInput.value = String(WIDTHS.indexOf(settings.lineWidth))
+  linesInput.value = String(settings.linesPerPage)
+}
+
+async function persist() {
+  try {
+    await bridge.setLocalStorage('pl-prompter', JSON.stringify({ ...settings, mode }))
+  } catch { /* storage is a convenience; never block the prompter on it */ }
+}
+
+async function restore() {
+  try {
+    const raw = await bridge.getLocalStorage('pl-prompter')
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    if (typeof saved.caps === 'boolean') settings.caps = saved.caps
+    if (WIDTHS.includes(saved.lineWidth)) settings.lineWidth = saved.lineWidth
+    if (LINES.includes(saved.linesPerPage)) settings.linesPerPage = saved.linesPerPage
+    if (saved.zone in ZONES) settings.zone = saved.zone
+    if (MODE_CYCLE.includes(saved.mode)) mode = saved.mode
+  } catch { /* corrupt or absent — defaults are already correct */ }
+}
+
+document.querySelectorAll<HTMLButtonElement>('.mode-btn').forEach((b) =>
+  b.addEventListener('click', () => { setMode(b.dataset.mode as Mode); send(lastText) }))
+
+document.querySelectorAll<HTMLButtonElement>('.zone-btn').forEach((b) =>
+  b.addEventListener('click', () => { setZone(b.dataset.zone as Zone); send(lastText) }))
+
+capsToggle.addEventListener('change', () => { settings.caps = capsToggle.checked; persist(); send(lastText) })
+widthInput.addEventListener('input', () => {
+  const i = Number(widthInput.value)
+  settings.lineWidth = WIDTHS[i]
+  settings.linesPerPage = LINES[i]
+  linesInput.value = String(settings.linesPerPage)
+  persist(); send(lastText)
+})
+linesInput.addEventListener('input', () => { settings.linesPerPage = Number(linesInput.value); persist(); send(lastText) })
+
+$('#send').addEventListener('click', () => send(textarea.value))
+$('#prev').addEventListener('click', () => showPage(pageIndex - 1))
+$('#next').addEventListener('click', () => showPage(pageIndex + 1))
+$('#preset-truths').addEventListener('click', () => { setMode('cards'); send(THREE_TRUTHS) })
+$('#preset-seed').addEventListener('click', () => { setMode('scroll'); send(seeds[Math.floor(Math.random() * seeds.length)].phrase) })
+
+await restore()
+setMode(mode)
+setZone(settings.zone)
+syncControls()
+await send('')
+
+// Test-only entry point — the simulator's automation API drives glasses-side
+// gestures but not phone-DOM clicks, so this exercises the same send() path.
 const testParams = new URLSearchParams(location.search)
 const autotest = testParams.get('autotest')
 if (autotest) {
   const m = testParams.get('mode') as Mode | null
   if (m && MODE_CYCLE.includes(m)) setMode(m)
-  send(decodeURIComponent(autotest))
+  await send(decodeURIComponent(autotest))
 } else if (testParams.get('preset') === 'truths') {
-  setMode('flashcard')
-  send(THREE_TRUTHS)
-} else if (testParams.get('preset') === 'seed') {
-  setMode('scroll')
-  const seed = seeds[Math.floor(Math.random() * seeds.length)]
-  send(seed.phrase)
+  setMode('cards')
+  await send(THREE_TRUTHS)
 }

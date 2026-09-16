@@ -2,28 +2,82 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>PL PROMPTER</title>
   </head>
   <body>
-    <div id="app">
-      <main>
+    <main id="app">
+      <header class="masthead">
         <h1>PL PROMPTER</h1>
-        <p class="hint">Paste your text, press Send. Swipe down on the glasses or the R1 ring to advance, swipe up to go back. Double press to exit.</p>
-        <div class="modes">
-          <button id="mode-scroll" type="button" class="mode-btn active">Scroll</button>
-          <button id="mode-flashcard" type="button" class="mode-btn">Cards</button>
-          <button id="mode-cues" type="button" class="mode-btn">Cues</button>
+        <p class="tagline">Your words on the lens.</p>
+      </header>
+
+      <section class="lens" aria-label="Glasses preview">
+        <div class="lens-frame">
+          <div id="preview-screen" data-zone="full" aria-live="polite"></div>
         </div>
-        <div class="presets">
-          <button id="preset-truths" type="button">Load Truths</button>
-          <button id="preset-seed" type="button">Load Seed Speech</button>
+        <p id="preview-meta" class="meta"></p>
+        <div class="pager">
+          <button id="prev" type="button" class="ghost" aria-label="Previous">&larr;</button>
+          <button id="next" type="button" class="ghost" aria-label="Next">&rarr;</button>
         </div>
-        <textarea id="script" rows="10" placeholder="Paste your script here... In Cues mode, each line becomes one cue."></textarea>
-        <button id="send" type="button">Send to glasses</button>
-        <p id="status"></p>
-      </main>
-    </div>
+      </section>
+
+      <section class="field">
+        <h2 class="label">Mode</h2>
+        <div class="seg">
+          <button type="button" class="mode-btn active" data-mode="scroll" aria-pressed="true">Scroll</button>
+          <button type="button" class="mode-btn" data-mode="cards" aria-pressed="false">Cards</button>
+          <button type="button" class="mode-btn" data-mode="cues" aria-pressed="false">Cues</button>
+        </div>
+      </section>
+
+      <section class="field">
+        <h2 class="label">Legibility</h2>
+        <p class="note">The lens has no font-size control. Size is bought with shorter lines, fewer of them, and capitals.</p>
+
+        <label class="row" for="width">
+          <span>Text weight on the lens</span>
+          <input id="width" type="range" min="0" max="4" step="1" value="1" />
+        </label>
+        <p class="scale"><span>Largest</span><span>Most text</span></p>
+
+        <label class="row" for="lines">
+          <span>Lines per screen</span>
+          <input id="lines" type="range" min="2" max="9" step="1" value="5" />
+        </label>
+
+        <label class="check" for="caps">
+          <input id="caps" type="checkbox" checked />
+          <span>ALL CAPS &mdash; largest apparent size</span>
+        </label>
+      </section>
+
+      <section class="field">
+        <h2 class="label">Where it sits</h2>
+        <div class="seg">
+          <button type="button" class="zone-btn active" data-zone="full" aria-pressed="true">Full</button>
+          <button type="button" class="zone-btn" data-zone="top" aria-pressed="false">Top</button>
+          <button type="button" class="zone-btn" data-zone="middle" aria-pressed="false">Middle</button>
+          <button type="button" class="zone-btn" data-zone="bottom" aria-pressed="false">Bottom</button>
+        </div>
+      </section>
+
+      <section class="field">
+        <h2 class="label">Text</h2>
+        <textarea id="script" rows="7" placeholder="Paste your script here.&#10;&#10;In Cues mode, each line becomes one cue."></textarea>
+        <div class="seg presets">
+          <button id="preset-truths" type="button">The Three Truths</button>
+          <button id="preset-seed" type="button">A Seed</button>
+        </div>
+        <button id="send" type="button" class="primary">Send to glasses</button>
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+
+      <footer class="foot">
+        <p>Swipe down on the temple or the R1 ring to advance. Swipe up to go back. Double press to exit.</p>
+      </footer>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
