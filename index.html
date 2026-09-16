@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: without it iOS shrinks only the VISUAL
+         viewport for the keyboard, and after the keyboard is dismissed the page is
+         left offset with everything below the focused field unreachable. Founder hit
+         this on PL PROMPTER: "after I dismiss my keyboard the page won't let me go
+         down so I can see anything under". -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>PL PROMPTER</title>
   </head>
   <body>

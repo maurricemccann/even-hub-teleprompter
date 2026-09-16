@@ -1,6 +1,7 @@
 import './style.css'
 import seedsData from './seeds.json'
 import { glyphLevels, tileOf, TILES, TILE_W, TILE_H, SCREEN_W } from './glyph-screen'
+import { keepScrollableAfterKeyboard } from './keyboard-scroll'
 import {
   waitForEvenAppBridge,
   TextContainerProperty,
@@ -369,6 +370,7 @@ $('#next').addEventListener('click', () => showPage(pageIndex + 1))
 $('#preset-truths').addEventListener('click', () => { setMode('cards'); send(THREE_TRUTHS) })
 $('#preset-seed').addEventListener('click', () => { setMode('scroll'); send(seeds[Math.floor(Math.random() * seeds.length)].phrase) })
 
+keepScrollableAfterKeyboard()
 await restore()
 setMode(mode)
 setZone(settings.zone)
