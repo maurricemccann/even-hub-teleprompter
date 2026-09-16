@@ -218,8 +218,12 @@ async function paint(content: string) {
 
 async function showPage(index: number) {
   pageIndex = Math.max(0, Math.min(index, pages.length - 1))
-  await paint(pages[pageIndex])
+  // Preview FIRST, then the lens. At a real font size the lens send is an image
+  // transfer of 0.5-2 s, and repainting the phone after it made the size slider
+  // feel like it had not worked — you move it, nothing changes, then it changes.
+  // The phone is local and instant; it should never wait on Bluetooth.
   renderPreview()
+  await paint(pages[pageIndex])
 }
 
 bridge.onEvenHubEvent(async (event: any) => {
@@ -281,10 +285,36 @@ const linesInput = $<HTMLInputElement>('#lines')
 function renderPreview() {
   preview.textContent = pages[pageIndex] ?? ''
   preview.dataset.zone = settings.zone
+
+  // The preview must show the size you actually picked.
+  //
+  // Founder: "the prompter didn't show the real size when I change the slider".
+  // #preview-screen had a hardcoded 13px font, so it rendered every size
+  // identically — the one control whose whole purpose is choosing a size, and
+  // the preview was blind to it. A preview that does not track the setting is
+  // worse than no preview, because it is confidently wrong.
+  //
+  // The box is the lens at a smaller scale, so the font scales by exactly that
+  // ratio: 576 px of lens shown in clientWidth px of phone.
+  const scale = (preview.clientWidth || 320) / 576
+  if (settings.textPx > 0) {
+    preview.style.fontSize = `${(settings.textPx * scale).toFixed(2)}px`
+    preview.style.lineHeight = '1.22'      // matches the leading sent to the lens
+    preview.style.fontWeight = '700'       // matches weight: 700 in paintGlyph
+  } else {
+    // Firmware text — hand the box back to the stylesheet.
+    preview.style.fontSize = ''
+    preview.style.lineHeight = ''
+    preview.style.fontWeight = ''
+  }
+
   const unit = mode === 'cues' ? 'cue' : mode === 'cards' ? 'card' : 'page'
+  const how = settings.textPx > 0
+    ? `${settings.textPx}px drawn`
+    : `${settings.lineWidth} chars · ${settings.linesPerPage} lines`
   previewMeta.textContent = pages[0] === PLACEHOLDER
     ? 'Nothing sent yet.'
-    : `${unit} ${pageIndex + 1} of ${pages.length} · ${settings.lineWidth} chars · ${settings.linesPerPage} lines`
+    : `${unit} ${pageIndex + 1} of ${pages.length} · ${how}`
 }
 
 async function send(text: string) {
