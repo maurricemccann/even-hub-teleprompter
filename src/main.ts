@@ -46,6 +46,24 @@ const ZONES: Record<Zone, { y: number; h: number }> = {
   bottom: { y: 184, h: 104 },
 }
 
+// Line height on this display is a FIXED 27px — there is no font-size control,
+// so a zone's height is a hard line BUDGET, not a suggestion. `full` (288px)
+// holds 10 lines; the three partial zones (104px) hold 3.
+//
+// linesPerPage defaults to 5 and the slider reaches 9, so choosing any zone but
+// Full silently clipped 2-6 lines off every single page: the text just stopped,
+// with nothing to indicate more had been written. On a prompter that is the
+// worst possible failure — you are reading aloud when the words run out.
+//
+// Derived at the point of USE rather than clamped inside each setter. Three
+// separate surfaces change the zone (the zone buttons, the restore path, and
+// setZone on load), and a clamp in one of them is a clamp the other two skip.
+const LINE_H = 27
+function linesForZone(): number {
+  const fits = Math.floor(ZONES[settings.zone].h / LINE_H)
+  return Math.max(1, Math.min(settings.linesPerPage, fits))
+}
+
 let mode: Mode = 'scroll'
 let pages = [PLACEHOLDER]
 let pageIndex = 0
@@ -76,8 +94,28 @@ function chunk(lines: string[], per: number): string[] {
   return out.length ? out : [PLACEHOLDER]
 }
 
+// The firmware silently DROPS glyphs outside its font set — no placeholder, no
+// error, just a gap where the character was. BLUEPRINT.md states the rule:
+// "Known-good: ● · ~ ASCII letters/digits. Do not use other unicode."
+//
+// seeds.json carries 1,334 of them (1,112 em dashes, 211 curly apostrophes),
+// so every contraction in the seed library was reading as "dont" and every dash
+// as a gap. Note .toUpperCase() below does NOT touch punctuation, which is why
+// capitals never masked this.
+//
+// Normalised HERE and not in seeds.json, deliberately: that file is the source
+// of truth for the founder's own writing and its typography is correct. It is
+// only this display that cannot render it — so this display is what adapts. The
+// phone textarea still shows the original, because a browser renders it fine.
+const toLens = (s: string) => s
+  .replace(/[—–‑]/g, '-')
+  .replace(/[‘’]/g, "'")
+  .replace(/[“”]/g, '"')
+  .replace(/…/g, '...')
+  .replace(/•/g, '*')
+
 function paginate(raw: string): string[] {
-  const text = settings.caps ? raw.toUpperCase() : raw
+  const text = toLens(settings.caps ? raw.toUpperCase() : raw)
   const trimmed = text.trim()
   if (!trimmed) return [PLACEHOLDER]
 
@@ -93,10 +131,10 @@ function paginate(raw: string): string[] {
   if (mode === 'cards') {
     // One idea per card — split on blank lines, never mid-sentence.
     const cards = trimmed.split(/\n\s*\n/).map((c) => c.trim()).filter(Boolean)
-    return cards.length ? cards.map((c) => wrap(c, settings.lineWidth).slice(0, settings.linesPerPage).join('\n')) : [trimmed]
+    return cards.length ? cards.map((c) => wrap(c, settings.lineWidth).slice(0, linesForZone()).join('\n')) : [trimmed]
   }
 
-  return chunk(toLines(trimmed), settings.linesPerPage)
+  return chunk(toLines(trimmed), linesForZone())
 }
 
 const bridge = await waitForEvenAppBridge()
@@ -226,24 +264,48 @@ async function showPage(index: number) {
   await paint(pages[pageIndex])
 }
 
-bridge.onEvenHubEvent(async (event: any) => {
+// SYNCHRONOUS, and it awaits nothing. The SDK's event dispatcher has a busy
+// guard that silently DISCARDS every input while a handler is in flight — the
+// gestures are not queued, they are thrown away.
+//
+// This handler used to await showPage(), and at a non-zero text size showPage
+// runs a full rebuild plus a settle delay plus four tile sends with retries and
+// 400ms backoffs. That is multiple seconds during which every swipe vanished.
+// On a prompter, the page turn IS the product: you swipe, nothing happens, you
+// swipe again, and both are gone.
+//
+// Each branch now dispatches detached with `void`. Ordering is still safe
+// because the work downstream is already serialised on its own.
+//
+// Swipes are also THROTTLED. They fire faster than a page can be drawn, so an
+// unthrottled flick queued more turns than intended and the text kept moving
+// after the finger stopped.
+const SWIPE_GAP_MS = 300
+let lastSwipeAt = 0
+
+bridge.onEvenHubEvent((event: any) => {
   if (event.menuItemClickEvent) {
     const id = event.menuItemClickEvent.itemID
-    if (id === 1) return showPage(0)
-    if (id === 2) { setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]); return send(lastText) }
-    if (id === 3) return step(-1)
-    if (id === 4) return step(1)
-    if (id === 5) { setMode('scroll'); return send(seeds[Math.floor(Math.random() * seeds.length)].phrase) }
+    if (id === 1) { void showPage(0); return }
+    if (id === 2) { setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]); void send(lastText); return }
+    if (id === 3) { void step(-1); return }
+    if (id === 4) { void step(1); return }
+    if (id === 5) { setMode('scroll'); void send(seeds[Math.floor(Math.random() * seeds.length)].phrase); return }
     return
   }
   if (event.textEvent) {
     const type = event.textEvent.eventType ?? 0
-    if (type === 1) await showPage(pageIndex - 1)
-    if (type === 2) await showPage(pageIndex + 1)
+    if (type !== 1 && type !== 2) return
+    const now = Date.now()
+    if (now - lastSwipeAt < SWIPE_GAP_MS) return
+    lastSwipeAt = now
+    void showPage(pageIndex + (type === 2 ? 1 : -1))
     return
   }
   if (event.sysEvent) {
-    if ((event.sysEvent.eventType ?? 0) === 3) await bridge.shutDownPageContainer(1)
+    // Argument 1, never 0 — 0 bypasses the exit dialogue and fails the store
+    // check that requires the dialogue to appear.
+    if ((event.sysEvent.eventType ?? 0) === 3) void bridge.shutDownPageContainer(1)
   }
 })
 
@@ -309,9 +371,17 @@ function renderPreview() {
   }
 
   const unit = mode === 'cues' ? 'cue' : mode === 'cards' ? 'card' : 'page'
+  // Reports the EFFECTIVE line count, not the requested one. A zone that can
+  // only fit 3 lines while the slider says 9 was a panel telling you something
+  // the lens was not doing — and the clipping it hid was invisible on device.
+  // When the two differ, say so rather than quietly showing the smaller number.
+  const fitted = linesForZone()
+  const lines = fitted === settings.linesPerPage
+    ? `${fitted} lines`
+    : `${fitted} lines (zone fits ${fitted} of ${settings.linesPerPage})`
   const how = settings.textPx > 0
     ? `${settings.textPx}px drawn`
-    : `${settings.lineWidth} chars · ${settings.linesPerPage} lines`
+    : `${settings.lineWidth} chars · ${lines}`
   previewMeta.textContent = pages[0] === PLACEHOLDER
     ? 'Nothing sent yet.'
     : `${unit} ${pageIndex + 1} of ${pages.length} · ${how}`
