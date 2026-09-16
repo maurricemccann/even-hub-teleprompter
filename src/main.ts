@@ -118,14 +118,25 @@ function container(content: string) {
   })
 }
 
+// A dropped BLE bridge (e.g. after the phone was locked) leaves these calls
+// awaiting a response that never comes — no error, no timeout of their own,
+// so the send silently hangs forever with zero feedback. Race against a
+// timeout so a lost connection surfaces as a message instead of a stuck UI.
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ])
+}
+
 // Geometry (the zone) is fixed at create/rebuild time, so a zone change has to
 // rebuild rather than upgrade. Content-only changes take the cheaper path.
 async function paint(content: string) {
   // menuObject rides along on every rebuild — omitting it clears the menu, per
   // the SDK docs, and every page advance rebuilds.
   const payload = { containerTotalNum: 1, textObject: [container(content)], menuObject: menu }
-  if (started) return void (await bridge.rebuildPageContainer(new RebuildPageContainer(payload)))
-  await bridge.createStartUpPageContainer(new CreateStartUpPageContainer(payload))
+  if (started) return void (await withTimeout(bridge.rebuildPageContainer(new RebuildPageContainer(payload)), 8000))
+  await withTimeout(bridge.createStartUpPageContainer(new CreateStartUpPageContainer(payload)), 8000)
   started = true
 }
 
@@ -193,8 +204,12 @@ async function send(text: string) {
   lastText = text
   textarea.value = text
   pages = paginate(text)
-  await showPage(0)
-  status.textContent = pages[0] === PLACEHOLDER ? '' : 'Sent to glasses.'
+  try {
+    await showPage(0)
+    status.textContent = pages[0] === PLACEHOLDER ? '' : 'Sent to glasses.'
+  } catch {
+    status.textContent = 'Lost connection to the glasses — close and reopen the app.'
+  }
 }
 
 function setMode(m: Mode) {
