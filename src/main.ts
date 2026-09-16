@@ -1,5 +1,6 @@
 import './style.css'
 import seedsData from './seeds.json'
+import { glyphLevels, tileOf, TILES, TILE_W, TILE_H, SCREEN_W } from './glyph-screen'
 import {
   waitForEvenAppBridge,
   TextContainerProperty,
@@ -7,6 +8,8 @@ import {
   RebuildPageContainer,
   MenuContainerProperty,
   MenuItemProperty,
+  ImageContainerProperty,
+  ImageRawDataUpdate,
 } from '@evenrealities/even_hub_sdk'
 
 const PLACEHOLDER = 'Paste text on your phone and press Send.'
@@ -29,8 +32,8 @@ const MODE_CYCLE: Mode[] = ['scroll', 'cards', 'cues']
 // TextContainerProperty has no size field, and the docs state "no font control").
 // Legibility is therefore bought with line length, line count, capitals and
 // placement — the four things the container DOES expose.
-type Settings = { caps: boolean; lineWidth: number; linesPerPage: number; zone: Zone }
-const settings: Settings = { caps: true, lineWidth: 24, linesPerPage: 5, zone: 'full' }
+type Settings = { caps: boolean; lineWidth: number; linesPerPage: number; zone: Zone; textPx: number }
+const settings: Settings = { caps: true, lineWidth: 24, linesPerPage: 5, zone: 'full', textPx: 0 }
 
 // Measured on the 576px width: ~48 '#', ~50 digits, ~57 '-'. The font is
 // proportional, so these are averages, not a grid — they land close enough that
@@ -129,9 +132,81 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ])
 }
 
+/**
+ * Draw the page with Glyph, at a real font size.
+ *
+ * This is the path that makes the size slider honest — see glyph-screen.ts. It
+ * costs an image send per page (0.5-2 s) instead of a near-free text upgrade,
+ * which is the deliberate trade the founder took for legibility.
+ *
+ * `size 0` means "use the firmware text path instead", so the old fast route is
+ * still one setting away rather than deleted.
+ */
+async function paintGlyph(content: string): Promise<string> {
+  const levels = await glyphLevels((g: any) => {
+    const { y, h } = ZONES[settings.zone]
+    g.textBox(content, { x: 10, y: y + 6, width: SCREEN_W - 20, height: h - 12 }, {
+      size: settings.textPx,
+      weight: 700,
+      leading: settings.textPx * 1.22,
+      uppercase: settings.caps,
+    }, 15)
+  })
+  const wasStarted = started
+  // zOrderIndex on EVERY container or none, IDs inside 1-12 — both learned the
+  // hard way in PL DECK, where a partial z-order silently killed every tile.
+  const payload = {
+    containerTotalNum: 1 + TILES.length,
+    textObject: [new TextContainerProperty({
+      xPosition: 0, yPosition: 264, width: SCREEN_W, height: 24,
+      borderWidth: 0, borderColor: 0, paddingLength: 4,
+      containerID: 1, containerName: 'main', content: ' ',
+      isEventCapture: 1, zOrderIndex: 1,
+    })],
+    imageObject: TILES.map((t, i) => new ImageContainerProperty({
+      xPosition: t.x, yPosition: t.y, width: TILE_W, height: TILE_H,
+      containerID: t.id, containerName: t.name, zOrderIndex: 2 + i,
+    })),
+    menuObject: menu,
+  }
+  if (started) {
+    await withTimeout(bridge.rebuildPageContainer(new RebuildPageContainer(payload)), 8000)
+  } else {
+    await withTimeout(bridge.createStartUpPageContainer(new CreateStartUpPageContainer(payload)), 8000)
+    started = true
+  }
+  // Settle before the first tile, or it returns sendFailed every time.
+  await new Promise(r => setTimeout(r, wasStarted ? 300 : 1000))
+
+  let result = 'success'
+  for (let i = 0; i < TILES.length && result === 'success'; i++) {
+    const t = TILES[i]
+    let last = 'no attempt'
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        last = await withTimeout(bridge.updateImageRawData(new ImageRawDataUpdate({
+          containerID: t.id, containerName: t.name, imageData: tileOf(levels, i),
+        })), 8000)
+        if (last === 'success') break
+      } catch (e: any) { last = 'threw ' + (e?.message ?? e) }
+      await new Promise(r => setTimeout(r, 400))
+    }
+    result = last
+  }
+  if (result !== 'success') console.warn('[prompter] glyph', result)
+  return result
+}
+
 // Geometry (the zone) is fixed at create/rebuild time, so a zone change has to
 // rebuild rather than upgrade. Content-only changes take the cheaper path.
 async function paint(content: string) {
+  // A real size means the Glyph path; 0 keeps the original near-free firmware
+  // text. Falls back to firmware text if the image send fails, so a bad link
+  // degrades to the old behaviour instead of a blank lens.
+  if (settings.textPx > 0) {
+    const r = await paintGlyph(content)
+    if (r === 'success') return
+  }
   // menuObject rides along on every rebuild — omitting it clears the menu, per
   // the SDK docs, and every page advance rebuilds.
   const payload = { containerTotalNum: 1, textObject: [container(content)], menuObject: menu }
@@ -167,14 +242,24 @@ bridge.onEvenHubEvent(async (event: any) => {
   }
 })
 
-// "Bigger" = fewer, shorter lines. The glyphs cannot grow, so legibility is
-// bought by giving each line more of the lens and less to compete with.
+// "Bigger" used to mean fewer, shorter lines, because the glyphs could not
+// grow. With the Glyph path they can, so Bigger/Smaller now walks a real size
+// ladder — 0 keeps the original firmware text, which is still the fastest page
+// turn and stays reachable at the bottom of the ladder.
+const SIZES = [0, 22, 28, 36, 46, 58, 72]
+// Kept for the firmware path: at size 0 these are still the only levers.
 const WIDTHS = [18, 24, 32, 40, 48]
 const LINES = [3, 4, 5, 7, 9]
+
 function step(dir: number) {
-  const i = Math.max(0, Math.min(WIDTHS.indexOf(settings.lineWidth) + dir, WIDTHS.length - 1))
-  settings.lineWidth = WIDTHS[i]
-  settings.linesPerPage = LINES[i]
+  const i = Math.max(0, Math.min(SIZES.indexOf(settings.textPx) + dir, SIZES.length - 1))
+  settings.textPx = SIZES[i]
+  if (settings.textPx === 0) {
+    // Back on firmware text — restore the widest of the old levers so the page
+    // is not left wrapped for a size that is no longer being drawn.
+    settings.lineWidth = WIDTHS[1]
+    settings.linesPerPage = LINES[1]
+  }
   syncControls()
   persist()
   return send(lastText)
@@ -188,6 +273,7 @@ const status = $<HTMLParagraphElement>('#status')
 const preview = $<HTMLDivElement>('#preview-screen')
 const previewMeta = $<HTMLParagraphElement>('#preview-meta')
 const capsToggle = $<HTMLInputElement>('#caps')
+const sizeInput = $<HTMLInputElement>('#size')
 const widthInput = $<HTMLInputElement>('#width')
 const linesInput = $<HTMLInputElement>('#lines')
 
@@ -232,6 +318,7 @@ function setZone(z: Zone) {
 
 function syncControls() {
   capsToggle.checked = settings.caps
+  sizeInput.value = String(Math.max(0, SIZES.indexOf(settings.textPx)))
   widthInput.value = String(WIDTHS.indexOf(settings.lineWidth))
   linesInput.value = String(settings.linesPerPage)
 }
@@ -251,6 +338,7 @@ async function restore() {
     if (WIDTHS.includes(saved.lineWidth)) settings.lineWidth = saved.lineWidth
     if (LINES.includes(saved.linesPerPage)) settings.linesPerPage = saved.linesPerPage
     if (saved.zone in ZONES) settings.zone = saved.zone
+    if (typeof saved.textPx === 'number') settings.textPx = saved.textPx
     if (MODE_CYCLE.includes(saved.mode)) mode = saved.mode
   } catch { /* corrupt or absent — defaults are already correct */ }
 }
@@ -262,6 +350,10 @@ document.querySelectorAll<HTMLButtonElement>('.zone-btn').forEach((b) =>
   b.addEventListener('click', () => { setZone(b.dataset.zone as Zone); send(lastText) }))
 
 capsToggle.addEventListener('change', () => { settings.caps = capsToggle.checked; persist(); send(lastText) })
+sizeInput.addEventListener('input', () => {
+  settings.textPx = SIZES[Number(sizeInput.value)] ?? 0
+  persist(); send(lastText)
+})
 widthInput.addEventListener('input', () => {
   const i = Number(widthInput.value)
   settings.lineWidth = WIDTHS[i]
@@ -288,6 +380,8 @@ await send('')
 const testParams = new URLSearchParams(location.search)
 const autotest = testParams.get('autotest')
 if (autotest) {
+  const sz = Number(testParams.get('size'))
+  if (Number.isFinite(sz) && sz >= 0) settings.textPx = sz
   const m = testParams.get('mode') as Mode | null
   if (m && MODE_CYCLE.includes(m)) setMode(m)
   await send(decodeURIComponent(autotest))
