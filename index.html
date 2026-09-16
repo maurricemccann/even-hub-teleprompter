@@ -39,7 +39,9 @@
 
       <section class="field">
         <h2 class="label">Legibility</h2>
-        <p class="note">The lens has no font-size control. Size is bought with shorter lines, fewer of them, and capitals.</p>
+        <p class="note">Text size is real now &mdash; the lens is drawn, not typed. Bigger costs a
+          slower page turn, so <strong>Firmware</strong> stays the fastest. The three controls
+          below still shape the firmware setting.</p>
 
         <label class="row" for="size">
           <span>Text size</span>
@@ -76,13 +78,16 @@
 
       <section class="field">
         <h2 class="label">Text</h2>
-        <textarea id="script" rows="7" placeholder="Paste your script here.&#10;&#10;In Cues mode, each line becomes one cue."></textarea>
+        <!-- Send and the presets sit ABOVE the box, not below it (founder,
+             S276·2997). A real script makes the textarea tall, and anything
+             under it gets pushed off the screen exactly when you need it. -->
+        <button id="send" type="button" class="primary">Send to glasses</button>
         <div class="seg presets">
           <button id="preset-truths" type="button">The Three Truths</button>
           <button id="preset-seed" type="button">A Seed</button>
         </div>
-        <button id="send" type="button" class="primary">Send to glasses</button>
         <p id="status" class="status" aria-live="polite"></p>
+        <textarea id="script" rows="7" placeholder="Paste your script here.&#10;&#10;In Cues mode, each line becomes one cue."></textarea>
       </section>
 
       <footer class="foot">
