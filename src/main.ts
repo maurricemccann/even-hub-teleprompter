@@ -15,7 +15,8 @@ const THREE_TRUTHS = [
   'Watch this.',
 ].join('\n\n')
 
-type Mode = 'scroll' | 'flashcard'
+type Mode = 'scroll' | 'flashcard' | 'cues'
+const MODE_CYCLE: Mode[] = ['scroll', 'flashcard', 'cues']
 let mode: Mode = 'scroll'
 
 function paginateScroll(text: string): string[] {
@@ -35,7 +36,18 @@ function paginateFlashcard(text: string): string[] {
   return cards.length ? cards : [trimmed]
 }
 
+// One line per screen, for live performance — the absorbed pl-cue-sheet. The
+// trailing counter rides inside the content rather than in its own container:
+// showPage upgrades container 1 only, and a second container would have to be
+// rebuilt on every advance.
+function paginateCues(text: string): string[] {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (!lines.length) return [PLACEHOLDER]
+  return lines.map((line, i) => `${line}\n\n${i + 1} / ${lines.length}`)
+}
+
 function paginate(text: string): string[] {
+  if (mode === 'cues') return paginateCues(text)
   return mode === 'flashcard' ? paginateFlashcard(text) : paginateScroll(text)
 }
 
@@ -64,7 +76,7 @@ const mainText = new TextContainerProperty({
 const menu = new MenuContainerProperty({
   menuItems: [
     new MenuItemProperty({ itemName: 'Restart', itemID: 1 }),
-    new MenuItemProperty({ itemName: 'Toggle mode', itemID: 2 }),
+    new MenuItemProperty({ itemName: 'Next mode', itemID: 2 }),
     new MenuItemProperty({ itemName: 'New seed', itemID: 3 }),
   ],
 })
@@ -95,7 +107,7 @@ bridge.onEvenHubEvent((event: any) => {
   if (event.menuItemClickEvent) {
     const itemID = event.menuItemClickEvent.itemID
     if (itemID === 1) showPage(0) // Restart
-    if (itemID === 2) { setMode(mode === 'scroll' ? 'flashcard' : 'scroll'); send(textarea.value) } // Toggle mode
+    if (itemID === 2) { setMode(MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length]); send(textarea.value) } // Next mode
     if (itemID === 3) { setMode('scroll'); send(seeds[Math.floor(Math.random() * seeds.length)].phrase) } // New seed
   }
 })
@@ -105,6 +117,7 @@ const sendBtn = document.querySelector<HTMLButtonElement>('#send')!
 const status = document.querySelector<HTMLParagraphElement>('#status')!
 const scrollBtn = document.querySelector<HTMLButtonElement>('#mode-scroll')!
 const flashcardBtn = document.querySelector<HTMLButtonElement>('#mode-flashcard')!
+const cuesBtn = document.querySelector<HTMLButtonElement>('#mode-cues')!
 const truthsBtn = document.querySelector<HTMLButtonElement>('#preset-truths')!
 const seedBtn = document.querySelector<HTMLButtonElement>('#preset-seed')!
 
@@ -112,17 +125,20 @@ async function send(text: string) {
   textarea.value = text
   pages = paginate(text)
   await showPage(0)
-  status.textContent = `Sent — ${pages.length} ${mode === 'flashcard' ? 'card(s)' : 'page(s)'} on the glasses.`
+  const unit = mode === 'cues' ? 'cue(s)' : mode === 'flashcard' ? 'card(s)' : 'page(s)'
+  status.textContent = `Sent — ${pages.length} ${unit} on the glasses.`
 }
 
 function setMode(m: Mode) {
   mode = m
   scrollBtn.classList.toggle('active', m === 'scroll')
   flashcardBtn.classList.toggle('active', m === 'flashcard')
+  cuesBtn.classList.toggle('active', m === 'cues')
 }
 
 scrollBtn.addEventListener('click', () => setMode('scroll'))
 flashcardBtn.addEventListener('click', () => setMode('flashcard'))
+cuesBtn.addEventListener('click', () => setMode('cues'))
 sendBtn.addEventListener('click', () => send(textarea.value))
 truthsBtn.addEventListener('click', () => { setMode('flashcard'); send(THREE_TRUTHS) })
 seedBtn.addEventListener('click', () => {
@@ -137,7 +153,8 @@ seedBtn.addEventListener('click', () => {
 const testParams = new URLSearchParams(location.search)
 const autotest = testParams.get('autotest')
 if (autotest) {
-  if (testParams.get('mode') === 'flashcard') setMode('flashcard')
+  const m = testParams.get('mode') as Mode | null
+  if (m && MODE_CYCLE.includes(m)) setMode(m)
   send(decodeURIComponent(autotest))
 } else if (testParams.get('preset') === 'truths') {
   setMode('flashcard')

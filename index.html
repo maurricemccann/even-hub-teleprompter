@@ -3,22 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Teleprompter</title>
+    <title>PL PROMPTER</title>
   </head>
   <body>
     <div id="app">
       <main>
-        <h1>Teleprompter</h1>
-        <p class="hint">Paste your script, press Send. Swipe down on the glasses to advance, swipe up to go back.</p>
+        <h1>PL PROMPTER</h1>
+        <p class="hint">Paste your text, press Send. Swipe down on the glasses or the R1 ring to advance, swipe up to go back. Double press to exit.</p>
         <div class="modes">
           <button id="mode-scroll" type="button" class="mode-btn active">Scroll</button>
-          <button id="mode-flashcard" type="button" class="mode-btn">Flashcard</button>
+          <button id="mode-flashcard" type="button" class="mode-btn">Cards</button>
+          <button id="mode-cues" type="button" class="mode-btn">Cues</button>
         </div>
         <div class="presets">
           <button id="preset-truths" type="button">Load Truths</button>
           <button id="preset-seed" type="button">Load Seed Speech</button>
         </div>
-        <textarea id="script" rows="10" placeholder="Paste your script here..."></textarea>
+        <textarea id="script" rows="10" placeholder="Paste your script here... In Cues mode, each line becomes one cue."></textarea>
         <button id="send" type="button">Send to glasses</button>
         <p id="status"></p>
       </main>
