@@ -58,7 +58,7 @@ page legible. Menu labels are verbs, not state, because the contextual menu is
 fire-and-forget — the OS never re-renders item state, so a label showing the current
 value would go stale the moment it was used (same reasoning as `PL CURVES HERO`).
 
-## Visual assets (in `store-assets/`, to be created)
+## Visual assets (in `store-assets/`, still to be created)
 
 | Asset | File | Notes |
 |---|---|---|
@@ -66,6 +66,26 @@ value would go stale the moment it was used (same reasoning as `PL CURVES HERO`)
 | Screenshot 1 | `screenshot-1-scroll.png` | Scroll mode, a wrapped page, real simulator capture at 576×288 on black |
 | Screenshot 2 | `screenshot-2-cues.png` | Cues mode showing the `n / total` counter |
 | Screenshot 3 *(optional, if the portal wants a third)* | `screenshot-3-cards.png` | Cards mode holding the Three Truths preset |
+
+### ⚠ Why the screenshots are not automatable, established S282·c4d9
+
+An automated capture was built and run against the real simulator
+(`scripts/capture-store-shots.py`, kept — it works and is correct). **It cannot finish the
+job alone, and the reason is structural:** the simulator's automation API
+(`--automation-port`) exposes only **glasses** input — `up` / `down` / `click` /
+`double_click` — plus screenshot and console reads. It has **no endpoint for the phone
+webview**, which is the only place text can be pasted and a mode chosen. Probed for
+undocumented routes (`/api/state`, `/api/webview`, `/api/app`): all 404.
+
+With no text entered, every mode renders the same empty state — *"Paste text on your phone
+and press Send."* — so the first run produced **three byte-identical frames** that differed
+only in filename. They were deleted rather than shipped; `store-assets/empty-state-576x288.png`
+is kept as the honest artifact of what the lenses actually show before input.
+
+**What this means in practice:** getting the three real shots needs either the founder
+driving the phone pane once while the script captures, or desktop-level automation of the
+simulator window (`drive-screen`, installed S275 and still unproven here). It is **not** a
+missing-asset chore an agent can silently finish.
 
 Unlike `PL CURVES HERO`, this app has no separate foreground/background 1024² icon
 pair to composite — the portal's icon field for this app class is the 24×24 upload
